@@ -8,14 +8,15 @@ RAM_USAGE=$(free -h | grep Mem | awk '{print $3 "/" $2}')
 DISK_USAGE=$(df -h | grep '^/dev' | awk '{print $3 "/" $2}')
 SWAP_USAGE=$(free -h | grep Swap | awk '{print $3 "/" $2}')
 USER="root"
-CREDITS="JOEL-DLC"
-COLOR_GREEN="\e[92m"
-COLOR_YELLOW="\e[93m"
-COLOR_RED="\e[91m"
-COLOR_RESET="\e[0m"
+CREDITS="Joel DLC"
+COLOR_GREEN="\033[92m"
+COLOR_YELLOW="\033[93m"
+COLOR_RED="\033[91m"
+COLOR_RESET="\033[0m"
 
 # Función para mostrar el banner
 function show_banner() {
+    clear
     echo -e "$COLOR_GREEN========================================="
     echo -e "       VPS Manager Script v$SCRIPT_VERSION"
     echo -e "          Kodex DLC-ADM"
@@ -32,6 +33,7 @@ function show_banner() {
 # Función para instalar protocolos
 function install_protocols() {
     echo "Instalando protocolos comunes..."
+    sleep 1
     # Instalación de Dropbear
     echo "Instalando Dropbear..."
     apt-get install dropbear -y
@@ -66,10 +68,11 @@ function check_domain() {
     read -p "Ingresa el dominio a verificar: " domain
     ping -c 4 $domain
     if [ $? -eq 0 ]; then
-        echo "$COLOR_GREENEl dominio $domain está funcionando.$COLOR_RESET"
+        echo -e "$COLOR_GREENEl dominio $domain está funcionando.$COLOR_RESET"
     else
-        echo "$COLOR_REDEl dominio $domain no responde.$COLOR_RESET"
+        echo -e "$COLOR_REDEl dominio $domain no responde.$COLOR_RESET"
     fi
+    sleep 2
 }
 
 # Función para configurar certificados SSL
@@ -104,9 +107,10 @@ function configure_ssl() {
             return
             ;;
         *)
-            echo "$COLOR_REDElije una opción válida.$COLOR_RESET"
+            echo -e "$COLOR_REDElije una opción válida.$COLOR_RESET"
             ;;
     esac
+    sleep 2
 }
 
 # Función para mostrar el menú principal
@@ -125,8 +129,8 @@ function main_menu() {
             2) check_domain ;;
             3) configure_ssl ;;
             4) show_banner ;;
-            5) echo "Saliendo..."; exit ;;
-            *) echo "$COLOR_REDOpción inválida.$COLOR_RESET"; sleep 2 ;;
+            5) echo -e "$COLOR_GREENSaliendo...$COLOR_RESET"; exit ;;
+            *) echo -e "$COLOR_REDOpción inválida.$COLOR_RESET"; sleep 2 ;;
         esac
     done
 }
