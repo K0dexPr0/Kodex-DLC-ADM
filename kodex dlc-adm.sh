@@ -40,7 +40,6 @@ function show_active_protocols() {
     else
         echo -e "- SSL: No instalado"
     fi
-    # Verificar V2Ray, Trojan, y Xray
     if pgrep v2ray > /dev/null; then
         echo -e "- V2Ray: Activo"
     else
@@ -87,7 +86,7 @@ function install_protocol() {
             ;;
         4)
             echo -e "${BLUE}Instalando V2Ray...${NC}"
-            bash <(curl -L https://install.direct/go.sh)
+            source <(curl -sL https://multi.netlify.app/v2ray.sh)
             ;;
         5)
             echo -e "${BLUE}Instalando Trojan...${NC}"
@@ -95,7 +94,7 @@ function install_protocol() {
             ;;
         6)
             echo -e "${BLUE}Instalando Xray...${NC}"
-            bash <(curl -L https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh)
+            source <(curl -sL https://multi.netlify.app/v2ray.sh)
             ;;
         7)
             echo -e "${BLUE}Instalando BadVPN...${NC}"
