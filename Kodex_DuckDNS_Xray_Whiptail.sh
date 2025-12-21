@@ -1,29 +1,9 @@
-!/usr/bin/env bash
+#!/usr/bin/env bash
 
-#########################################################
-
-KodexDev – DuckDNS + Xray + TLS Installer (Whiptail)      #
-
-Versión monolítica con menú gráfico                       #
-
-Autor: KodexDev - JoelDLC                                 #
-
-#########################################################
-
-===========================
-
-Configuración básica
-
-===========================
 set -o errexit
 set -o pipefail
 set -o nounset
 
-===========================
-
-Colores
-
-===========================
 NC="\e[0m"
 RED="\e[31m"
 GREEN="\e[32m"
@@ -33,335 +13,41 @@ CYAN="\e[36m"
 MAGENTA="\e[35m"
 BOLD="\e[1m"
 
-===========================
-
-Funciones básicas de mensajes
-
-===========================
-log_info() {
-  echo -e "${CYAN}[INFO]${NC} $*"
-}
-
-log_ok() {
-  echo -e "${GREEN}[OK]${NC} $*"
-}
-
-log_warn() {
-  echo -e "${YELLOW}[WARN]${NC} $*"
-}
-
-log_error() {
-  echo -e "${RED}[ERROR]${NC} $*"
-}
-
-===========================
-
-Verificar root
-
-===========================
-require_root() {
-  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    log_error "Este script debe ejecutarse como root."
-    exit 1
-  fi
-}
-
-require_root
-
-===========================
-
-Detección de gestor de paquetes
-
-===========================
-detectpackagemanager() {
-  if command -v apt >/dev/null 2>&1; then
-    echo "apt"
-  elif command -v apt-get >/dev/null 2>&1; then
-    echo "apt-get"
-  elif command -v yum >/dev/null 2>&1; then
-    echo "yum"
-  elif command -v dnf >/dev/null 2>&1; then
-    echo "dnf"
-  elif command -v apk >/dev/null 2>&1; then
-    echo "apk"
-  else
-    echo "unknown"
-  fi
-}
-
-PKGMANAGER="$(detectpackage_manager)"
-
-===========================
-
-Verificar/instalar whiptail (ANTES de usarlo)
-
-===========================
-ensure_whiptail() {
-  if command -v whiptail >/dev/null 2>&1; then
-    log_ok "whiptail ya está instalado."
-    return 0
-  fi
-
-  log_warn "whiptail no está instalado en el sistema."
-
-  echo
-  echo -e "${BOLD}Se requiere 'whiptail' para mostrar el menú gráfico.${NC}"
-  read -rp "¿Desea instalar whiptail ahora? (s/n): " INSTALL_WT
-
-  if [[ ! "$INSTALL_WT" =~ ^[sS]$ ]]; then
-    log_error "No se puede continuar sin whiptail. Saliendo."
-    exit 1
-  fi
-
-  case "$PKG_MANAGER" in
-    apt|apt-get)
-      loginfo "Instalando whiptail con $PKGMANAGER..."
-      $PKG_MANAGER update -y >/dev/null 2>&1 || true
-      $PKG_MANAGER install -y whiptail >/dev/null 2>&1
-      ;;
-    yum|dnf)
-      loginfo "Instalando newt (whiptail) con $PKGMANAGER..."
-      $PKG_MANAGER install -y newt >/dev/null 2>&1
-      ;;
-    apk)
-      log_info "Instalando newt (whiptail) con apk..."
-      apk update >/dev/null 2>&1 || true
-      apk add newt >/dev/null 2>&1
-      ;;
-    *)
-      log_error "No se pudo detectar un gestor de paquetes compatible para instalar whiptail."
-      exit 1
-      ;;
-  esac
-
-  if command -v whiptail >/dev/null 2>&1; then
-    log_ok "whiptail instalado correctamente."
-  else
-    log_error "Falló la instalación de whiptail."
-    exit 1
-  fi
-}
-
-ensure_whiptail
-
-===========================
-
-Variables globales
-
-===========================
-LANG_CHOICE="ES"
-CARRIER="Xray-Network"
-CONFIG_FILE=""
-FULL_DOMAIN=""
-DUCK_SUB=""
-DUCK_TOKEN=""
-XRAY_DETECTED="no"
-UUID_GENERATED=""
-CERT_CRT="/etc/xray/server.crt"
-CERT_KEY="/etc/xray/server.key"
-
-===========================
-
-Función de banner con whiptail
-
-===========================
-show_banner() {
-  whiptail --title "KodexDev - DuckDNS + Xray Installer" \
-    --msgbox "Bienvenido al instalador gráfico de DuckDNS + Xray + TLS\n\nAutor: KodexDev - JoelDLC" 10 60
-}
-
-show_banner
-
-===========================
-
-Selección de idioma
-
-===========================
-select_language() {
-  local CHOICE
-  CHOICE=$(whiptail --title "Idioma / Language / Idioma" --menu "Seleccione el idioma:" 15 60 3 \
-    "1" "Español" \
-    "2" "English" \
-    "3" "Português" 3>&1 1>&2 2>&3) || true
-
-  case "$CHOICE" in
-    1) LANG_CHOICE="ES" ;;
-    2) LANG_CHOICE="EN" ;;
-    3) LANG_CHOICE="PT" ;;
-    *) LANG_CHOICE="ES" ;;
-  esac
-}
-
-select_language
-
-===========================
-
-Función para obtener texto según idioma (básico)
-
-===========================
 t() {
-  local key="$1"
-  case "$LANG_CHOICE" in
-    ES)
-      case "$key" in
-        main_title) echo "KodexDev - DuckDNS + Xray + TLS" ;;
-        main_menu) echo "Seleccione una opción:" ;;
-        opt_duckdns) echo "Configurar DuckDNS" ;;
-        opt_cert) echo "Emitir certificado SSL" ;;
-        opt_tls) echo "Actualizar TLS en config.json" ;;
-        opt_vless) echo "Generar enlace VLESS" ;;
-        opt_advanced) echo "Configuración avanzada" ;;
-        opt_exit) echo "Salir" ;;
-        carrier_title) echo "Seleccione su operadora" ;;
-        carrier_1) echo "Claro Dominicana" ;;
-        carrier_2) echo "Viva RD" ;;
-        carrier_3) echo "Altice Dominicana" ;;
-        carrier_4) echo "Otra / Genérica" ;;
-        *) echo "$key" ;;
-      esac
-      ;;
-    EN)
-      case "$key" in
-        main_title) echo "KodexDev - DuckDNS + Xray + TLS" ;;
-        main_menu) echo "Select an option:" ;;
-        opt_duckdns) echo "Configure DuckDNS" ;;
-        opt_cert) echo "Issue SSL certificate" ;;
-        opt_tls) echo "Update TLS in config.json" ;;
-        opt_vless) echo "Generate VLESS link" ;;
-        opt_advanced) echo "Advanced settings" ;;
-        opt_exit) echo "Exit" ;;
-        carrier_title) echo "Select your carrier" ;;
-        carrier_1) echo "Claro Dominicana" ;;
-        carrier_2) echo "Viva RD" ;;
-        carrier_3) echo "Altice Dominicana" ;;
-        carrier_4) echo "Other / Generic" ;;
-        *) echo "$key" ;;
-      esac
-      ;;
-    PT)
-      case "$key" in
-        main_title) echo "KodexDev - DuckDNS + Xray + TLS" ;;
-        main_menu) echo "Selecione uma opção:" ;;
-        opt_duckdns) echo "Configurar DuckDNS" ;;
-        opt_cert) echo "Emitir certificado SSL" ;;
-        opt_tls) echo "Atualizar TLS no config.json" ;;
-        opt_vless) echo "Gerar link VLESS" ;;
-        opt_advanced) echo "Configurações avançadas" ;;
-        opt_exit) echo "Sair" ;;
-        carrier_title) echo "Selecione sua operadora" ;;
-        carrier_1) echo "Claro Dominicana" ;;
-        carrier_2) echo "Viva RD" ;;
-        carrier_3) echo "Altice Dominicana" ;;
-        carrier_4) echo "Outra / Genérica" ;;
-        *) echo "$key" ;;
-      esac
-      ;;
-    *)
-      echo "$key"
-      ;;
+  case "$1" in
+    main_title) echo "KodexDev – Instalador DuckDNS + Xray" ;;
+    main_menu) echo "Seleccione una opción:" ;;
+    opt_duckdns) echo "Configurar DuckDNS" ;;
+    opt_cert) echo "Emitir certificado SSL" ;;
+    opt_tls) echo "Actualizar TLS en config.json" ;;
+    opt_vless) echo "Generar enlace VLESS" ;;
+    opt_advanced) echo "Opciones avanzadas" ;;
+    opt_exit) echo "Salir" ;;
   esac
 }
 
-===========================
-
-Selección de operadora
-
-===========================
-select_carrier() {
-  local CHOICE
-  CHOICE=$(whiptail --title "$(t carriertitle)" --menu "$(t carriertitle)" 15 60 4 \
-    "1" "$(t carrier_1)" \
-    "2" "$(t carrier_2)" \
-    "3" "$(t carrier_3)" \
-    "4" "$(t carrier_4)" 3>&1 1>&2 2>&3) || true
-
-  case "$CHOICE" in
-    1) CARRIER="Claro-Dominicana" ;;
-    2) CARRIER="Viva-RD" ;;
-    3) CARRIER="Altice-Dominicana" ;;
-    4|*) CARRIER="Xray-Network" ;;
-  esac
-}
-
-select_carrier
-
-===== FIN BLOQUE 1/12 =====
-
-# ===========================
-# Detección de Xray
-# ===========================
-detect_xray() {
-  if command -v xray >/dev/null 2>&1; then
-    XRAY_DETECTED="yes"
-    return 0
-  fi
-
-  # Buscar en rutas comunes
-  for path in /usr/bin/xray /usr/local/bin/xray /usr/sbin/xray; do
-    if [ -f "$path" ]; then
-      XRAY_DETECTED="yes"
-      return 0
-    fi
-  done
-
-  XRAY_DETECTED="no"
-  return 1
-}
-
-# ===========================
-# Verificar estado de Xray
-# ===========================
-check_xray_status() {
-  if systemctl is-active --quiet xray; then
-    echo "active"
+detect_pkg_manager() {
+  if command -v apt >/dev/null 2>&1; then
+    PKG_MANAGER="apt"
+  elif command -v apt-get >/dev/null 2>&1; then
+    PKG_MANAGER="apt-get"
+  elif command -v yum >/dev/null 2>&1; then
+    PKG_MANAGER="yum"
+  elif command -v dnf >/dev/null 2>&1; then
+    PKG_MANAGER="dnf"
+  elif command -v apk >/dev/null 2>&1; then
+    PKG_MANAGER="apk"
   else
-    echo "inactive"
+    echo "No se pudo detectar el gestor de paquetes."
+    exit 1
   fi
 }
 
-# ===========================
-# Instalación de Xray (si el usuario acepta)
-# ===========================
-install_xray() {
-  whiptail --title "Instalando Xray" --infobox "Instalando Xray...\nEsto puede tardar unos segundos." 10 60
-  bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null 2>&1
+detect_pkg_manager
 
-  sleep 2
+CERT_CRT="/etc/xray/fullchain.crt"
+CERT_KEY="/etc/xray/private.key"
 
-  if command -v xray >/dev/null 2>&1; then
-    whiptail --title "Xray instalado" --msgbox "Xray se instaló correctamente." 10 60
-    XRAY_DETECTED="yes"
-  else
-    whiptail --title "Error" --msgbox "No se pudo instalar Xray." 10 60
-    XRAY_DETECTED="no"
-  fi
-}
-
-# ===========================
-# Función que asegura que Xray esté instalado
-# ===========================
-ensure_xray() {
-  detect_xray
-
-  if [ "$XRAY_DETECTED" = "yes" ]; then
-    return 0
-  fi
-
-  # Preguntar al usuario
-  if whiptail --title "Xray no encontrado" --yesno "Xray no está instalado.\n¿Desea instalarlo ahora?" 10 60; then
-    install_xray
-  else
-    whiptail --title "Xray requerido" --msgbox "No se puede continuar sin Xray." 10 60
-    return 1
-  fi
-}
-
-# Ejecutar verificación inicial
-ensure_xray
-
-# ===========================
-# Buscar archivo config.json
-# ===========================
 find_config_file() {
   local paths=(
     "/etc/xray/config.json"
@@ -388,7 +74,6 @@ find_config_file() {
     return 0
   fi
 
-  # Si hay múltiples archivos, mostrar menú
   local menu_items=()
   local index=1
 
@@ -413,9 +98,6 @@ find_config_file() {
   return 0
 }
 
-# ===========================
-# Validar JSON
-# ===========================
 validate_json() {
   if ! command -v jq >/dev/null 2>&1; then
     case "$PKG_MANAGER" in
@@ -432,20 +114,13 @@ validate_json() {
   fi
 }
 
-# ===========================
-# Crear backup seguro
-# ===========================
 backup_config() {
   local timestamp
   timestamp=$(date +%Y%m%d-%H%M%S)
   local backup="${CONFIG_FILE}.backup-${timestamp}"
-
   cp "$CONFIG_FILE" "$backup"
 }
 
-# ===========================
-# Asegurar que config.json exista
-# ===========================
 ensure_config_file() {
   find_config_file
 
@@ -455,7 +130,6 @@ ensure_config_file() {
     return 1
   fi
 
-  # Validar JSON
   if ! validate_json; then
     whiptail --title "Error en JSON" \
       --msgbox "El archivo config.json contiene errores de sintaxis.\nCorríjalo antes de continuar." 10 60
@@ -465,12 +139,8 @@ ensure_config_file() {
   return 0
 }
 
-# Ejecutar detección inicial
-ensure_config_file
+ensure_config_file || true
 
-# ===========================
-# Menú principal
-# ===========================
 main_menu() {
   while true; do
     CHOICE=$(whiptail --title "$(t main_title)" --menu "$(t main_menu)" 20 70 10 \
@@ -483,21 +153,11 @@ main_menu() {
       3>&1 1>&2 2>&3) || exit 0
 
     case "$CHOICE" in
-      1)
-        configure_duckdns
-        ;;
-      2)
-        issue_certificate
-        ;;
-      3)
-        update_tls
-        ;;
-      4)
-        generate_vless
-        ;;
-      5)
-        advanced_menu
-        ;;
+      1) configure_duckdns ;;
+      2) issue_certificate ;;
+      3) update_tls ;;
+      4) generate_vless ;;
+      5) advanced_menu ;;
       6)
         whiptail --title "Salir" --msgbox "Gracias por usar el instalador KodexDev – JoelDLC." 10 60
         exit 0
@@ -506,9 +166,6 @@ main_menu() {
   done
 }
 
-# ===========================
-# Menú avanzado
-# ===========================
 advanced_menu() {
   while true; do
     local CHOICE
@@ -526,43 +183,20 @@ advanced_menu() {
       3>&1 1>&2 2>&3) || return 0
 
     case "$CHOICE" in
-      1)
-        show_xray_status
-        ;;
-      2)
-        show_xray_logs
-        ;;
-      3)
-        show_certificate_info
-        ;;
-      4)
-        regenerate_certificate
-        ;;
-      5)
-        edit_config_json
-        ;;
-      6)
-        detect_inbounds
-        ;;
-      7)
-        restart_xray
-        ;;
-      8)
-        system_info
-        ;;
-      9)
-        expert_mode
-        ;;
-      10)
-        return 0
-        ;;
+      1) show_xray_status ;;
+      2) show_xray_logs ;;
+      3) show_certificate_info ;;
+      4) regenerate_certificate ;;
+      5) edit_config_json ;;
+      6) detect_inbounds ;;
+      7) restart_xray ;;
+      8) system_info ;;
+      9) expert_mode ;;
+      10) return 0 ;;
     esac
   done
 }
 
-# ===========================
-# Modo experto
-# ===========================
 expert_mode() {
   while true; do
     local CHOICE
@@ -576,12 +210,8 @@ expert_mode() {
       3>&1 1>&2 2>&3) || return 0
 
     case "$CHOICE" in
-      1)
-        nano "$CONFIG_FILE"
-        ;;
-      2)
-        vi "$CONFIG_FILE"
-        ;;
+      1) nano "$CONFIG_FILE" ;;
+      2) vi "$CONFIG_FILE" ;;
       3)
         if validate_json; then
           whiptail --title "Validación JSON" --msgbox "El archivo JSON es válido." 10 60
@@ -589,34 +219,21 @@ expert_mode() {
           whiptail --title "Validación JSON" --msgbox "El archivo JSON contiene errores." 10 60
         fi
         ;;
-      4)
-        ss -tulpn | whiptail --title "Puertos abiertos" --textbox - 25 90
-        ;;
-      5)
-        ps aux | grep xray | whiptail --title "Procesos Xray" --textbox - 25 90
-        ;;
-      6)
-        return 0
-        ;;
+      4) ss -tulpn | whiptail --title "Puertos abiertos" --textbox - 25 90 ;;
+      5) ps aux | grep xray | whiptail --title "Procesos Xray" --textbox - 25 90 ;;
+      6) return 0 ;;
     esac
   done
 }
 
-# ===========================
-# Configurar DuckDNS
-# ===========================
 configure_duckdns() {
-  # Pedir subdominio
   DUCK_SUB=$(whiptail --title "DuckDNS" --inputbox "Ingrese el subdominio DuckDNS (sin .duckdns.org):" 10 60 3>&1 1>&2 2>&3) || return 0
-
   if [ -z "$DUCK_SUB" ]; then
     whiptail --title "Error" --msgbox "Debe ingresar un subdominio válido." 10 60
     return 1
   fi
 
-  # Pedir token
   DUCK_TOKEN=$(whiptail --title "DuckDNS" --passwordbox "Ingrese el token de DuckDNS:" 10 60 3>&1 1>&2 2>&3) || return 0
-
   if [ -z "$DUCK_TOKEN" ]; then
     whiptail --title "Error" --msgbox "Debe ingresar un token válido." 10 60
     return 1
@@ -624,7 +241,6 @@ configure_duckdns() {
 
   FULL_DOMAIN="${DUCK_SUB}.duckdns.org"
 
-  # Validar token
   whiptail --title "Validando" --infobox "Validando token DuckDNS..." 10 60
   sleep 1
 
@@ -639,16 +255,12 @@ configure_duckdns() {
   whiptail --title "DuckDNS configurado" --msgbox "DuckDNS configurado correctamente.\nDominio: ${FULL_DOMAIN}" 10 60
 }
 
-
-# ===========================
-# Instalar ACME si no existe
-# ===========================
 install_acme() {
   if command -v acme.sh >/dev/null 2>&1; then
     return 0
   fi
 
-  whiptail --title "Instalando ACME" --infobox "Instalando acme.sh...\nEsto puede tardar unos segundos." 10 60
+  whiptail --title "Instalando ACME" --infobox "Instalando acme.sh..." 10 60
   curl -s https://get.acme.sh | sh >/dev/null 2>&1
   sleep 2
 
@@ -656,13 +268,8 @@ install_acme() {
     whiptail --title "Error" --msgbox "No se pudo instalar acme.sh." 10 60
     return 1
   fi
-
-  return 0
 }
 
-# ===========================
-# Emitir certificado SSL
-# ===========================
 issue_certificate() {
   if [ -z "$FULL_DOMAIN" ] || [ -z "$DUCK_TOKEN" ]; then
     whiptail --title "DuckDNS requerido" --msgbox "Debe configurar DuckDNS antes de emitir el certificado." 10 60
@@ -671,17 +278,16 @@ issue_certificate() {
 
   install_acme
 
-  whiptail --title "Certificado SSL" --infobox "Generando certificado SSL para:\n${FULL_DOMAIN}\n\nEsto puede tardar 20–40 segundos..." 12 60
+  whiptail --title "Certificado SSL" --infobox "Generando certificado SSL para:\n${FULL_DOMAIN}" 12 60
   sleep 2
 
   export DuckDNS_Token="${DUCK_TOKEN}"
 
   acme.sh --set-default-ca --server letsencrypt >/dev/null 2>&1
-
   acme.sh --issue --dns dns_duckdns -d "${FULL_DOMAIN}" >/dev/null 2>&1
 
   if [ $? -ne 0 ]; then
-    whiptail --title "Error" --msgbox "No se pudo emitir el certificado SSL.\nVerifique su token y dominio." 12 60
+    whiptail --title "Error" --msgbox "No se pudo emitir el certificado SSL." 12 60
     return 1
   fi
 
@@ -693,15 +299,12 @@ issue_certificate() {
     --reloadcmd "systemctl restart xray" >/dev/null 2>&1
 
   if [ $? -eq 0 ]; then
-    whiptail --title "Certificado instalado" --msgbox "Certificado SSL emitido e instalado correctamente.\n\nRuta:\n$CERT_CRT" 12 60
+    whiptail --title "Certificado instalado" --msgbox "Certificado SSL emitido e instalado correctamente." 12 60
   else
     whiptail --title "Error" --msgbox "El certificado se emitió, pero no se pudo instalar." 12 60
   fi
 }
 
-# ===========================
-# Ver certificado actual
-# ===========================
 show_certificate_info() {
   if [ ! -f "$CERT_CRT" ]; then
     whiptail --title "Sin certificado" --msgbox "No existe un certificado instalado." 10 60
@@ -711,18 +314,12 @@ show_certificate_info() {
   openssl x509 -in "$CERT_CRT" -noout -text | whiptail --title "Certificado SSL" --textbox - 25 90
 }
 
-# ===========================
-# Regenerar certificado
-# ===========================
 regenerate_certificate() {
   if whiptail --title "Regenerar certificado" --yesno "¿Desea regenerar el certificado SSL?" 10 60; then
     issue_certificate
   fi
 }
 
-# ===========================
-# Detectar inbounds (TCP/WS/VLESS/VMESS)
-# ===========================
 detect_inbounds() {
   ensure_config_file || return 1
 
@@ -737,9 +334,6 @@ detect_inbounds() {
   echo "$inbound_list" | whiptail --title "Inbounds detectados" --textbox - 20 70
 }
 
-# ===========================
-# Actualizar TLS en config.json
-# ===========================
 update_tls() {
   ensure_config_file || return 1
 
@@ -753,7 +347,6 @@ update_tls() {
   whiptail --title "Actualizando TLS" --infobox "Actualizando configuración TLS en config.json..." 10 60
   sleep 1
 
-  # Insertar TLS en todos los inbounds que lo soporten
   local NEW_JSON
   NEW_JSON=$(jq \
     --arg crt "$CERT_CRT" \
@@ -783,7 +376,6 @@ update_tls() {
 
   echo "$NEW_JSON" > "$CONFIG_FILE"
 
-  # Validar JSON final
   if ! validate_json; then
     whiptail --title "Error JSON" --msgbox "El archivo JSON quedó inválido.\nSe restaurará el backup." 12 60
     cp "${CONFIG_FILE}.backup-"* "$CONFIG_FILE"
@@ -795,9 +387,6 @@ update_tls() {
   whiptail --title "TLS actualizado" --msgbox "TLS actualizado correctamente en config.json." 10 60
 }
 
-# ===========================
-# Obtener UUID del inbound VLESS
-# ===========================
 get_vless_uuid() {
   ensure_config_file || return 1
 
@@ -812,9 +401,6 @@ get_vless_uuid() {
   return 0
 }
 
-# ===========================
-# Obtener puerto del inbound VLESS
-# ===========================
 get_vless_port() {
   ensure_config_file || return 1
 
@@ -829,9 +415,6 @@ get_vless_port() {
   return 0
 }
 
-# ===========================
-# Obtener path si es WebSocket
-# ===========================
 get_vless_path() {
   ensure_config_file || return 1
 
@@ -845,9 +428,6 @@ get_vless_path() {
   fi
 }
 
-# ===========================
-# Generar enlace VLESS
-# ===========================
 generate_vless() {
   ensure_config_file || return 1
 
@@ -877,26 +457,16 @@ generate_vless() {
   echo "$VLESS_LINK" | whiptail --title "Enlace VLESS" --textbox - 15 90
 }
 
-# ===========================
-# Mostrar estado de Xray
-# ===========================
 show_xray_status() {
   local STATUS
   STATUS=$(systemctl status xray 2>&1)
-
   echo "$STATUS" | whiptail --title "Estado de Xray" --textbox - 25 90
 }
 
-# ===========================
-# Mostrar logs de Xray
-# ===========================
 show_xray_logs() {
   journalctl -u xray --no-pager -n 200 2>&1 | whiptail --title "Logs de Xray" --textbox - 25 90
 }
 
-# ===========================
-# Reiniciar Xray
-# ===========================
 restart_xray() {
   systemctl restart xray >/dev/null 2>&1
 
@@ -907,9 +477,6 @@ restart_xray() {
   fi
 }
 
-# ===========================
-# Información del sistema
-# ===========================
 system_info() {
   local INFO=""
 
@@ -925,17 +492,11 @@ system_info() {
   echo -e "$INFO" | whiptail --title "Información del sistema" --textbox - 25 90
 }
 
-# ===========================
-# Editar config.json
-# ===========================
 edit_config_json() {
   ensure_config_file || return 1
-
   nano "$CONFIG_FILE"
 }
-# ===========================
-# Inicio del script
-# ===========================
+
 start_script() {
   whiptail --title "KodexDev – Instalador" \
     --msgbox "El entorno gráfico está listo.\n\nPresione OK para continuar al menú principal." 10 60
@@ -943,10 +504,6 @@ start_script() {
   main_menu
 }
 
-# Ejecutar script
 start_script
 
-# ===========================
-# Fin del script
-# ===========================
 exit 0
