@@ -39,17 +39,17 @@ system_info() {
 banner() {
   system_info
   clear
-  echo -e "${BLUE}"
+  echo -e "${RED}"
   echo "╔════════════════════════════════════════════╗"
   echo "║         KodexDev - VPS Manager Ver 1       ║"
   echo "║            Developed by Joel DLC           ║"
   echo "╠════════════════════════════════════════════╣"
-  echo -e "║ OS      : ${WHITE}$OS${RED}"
-  echo -e "║ Kernel  : ${WHITE}$KERNEL${RED}"
-  echo -e "║ RAM     : ${WHITE}${RAM}MB${RED}"
-  echo -e "║ CPU     : ${WHITE}$CPU${RED}"
-  echo -e "║ IP      : ${WHITE}$IP${RED}"
-  echo -e "║ Uptime  : ${WHITE}$UPTIME${RED}"
+  echo -e "║ OS      : ${WHITE}$OS${GREEN}"
+  echo -e "║ Kernel  : ${WHITE}$KERNEL${GREEN}"
+  echo -e "║ RAM     : ${WHITE}${RAM}MB${BLUE}"
+  echo -e "║ CPU     : ${WHITE}$CPU${GREEN}"
+  echo -e "║ IP      : ${WHITE}$IP${YELLOW}"
+  echo -e "║ Uptime  : ${WHITE}$UPTIME${WHITE}"
   echo "╚════════════════════════════════════════════╝"
   echo -e "${NC}"
 }
@@ -60,7 +60,7 @@ pause(){ read -p "Presiona ENTER para continuar..."; }
 optimize_menu() {
   while true; do
     clear
-    echo -e "${CYAN}[ Optimización VPS ]${NC}"
+    echo -e "${GREEN}[ Optimización VPS ]${NC}"
     echo "1) Perfil Básico (seguro)"
     echo "2) Perfil Alto Rendimiento"
     echo "3) Ver configuración actual"
