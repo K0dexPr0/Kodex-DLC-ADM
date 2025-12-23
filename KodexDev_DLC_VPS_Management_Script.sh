@@ -39,10 +39,10 @@ system_info() {
 banner() {
   system_info
   clear
-  echo -e "${CYAN}"
+  echo -e "${RED}"
   echo "╔════════════════════════════════════════════╗"
-  echo "║           KodexDev - VPS Manager           ║"
-  echo "║                Joel  DLC                   ║"
+  echo "║         KodexDev - VPS Manager Ver 1       ║"
+  echo "║            Developed by Joel DLC           ║"
   echo "╠════════════════════════════════════════════╣"
   echo -e "║ OS      : ${WHITE}$OS${RED}"
   echo -e "║ Kernel  : ${WHITE}$KERNEL${RED}"
