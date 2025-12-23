@@ -1,222 +1,248 @@
 #!/bin/bash
-# ==================================================
-# KodexDev VPS Management System
-# True Monolithic VPS Administrator
+# ==========================================================
+# KodexDev VPS Manager | Monolithic Edition
 # Author: Joel_DLC
-# ==================================================
+# Branding: KodexDev
+# ==========================================================
 
-### COLORES
-RED="\e[31m"; GREEN="\e[32m"; YELLOW="\e[33m"
-WHITE="\e[97m"; RESET="\e[0m"
+### COLORES (LEGIBLES)
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+NC="\e[0m"
+BOLD="\e[1m"
 
-### RUTAS
-XRAY_CONFIG="/etc/xray/config.json"
-SYSCTL_FILE="/etc/sysctl.d/99-kodexdev.conf"
+### VARIABLES GLOBALES
+XRAY_DIR="/root/etc/xray"
+XRAY_CONFIG="$XRAY_DIR/config.json"
 BACKUP_DIR="/root/kodexdev_backups"
-LOG_FILE="/var/log/kodexdev.log"
 SCRIPT_PATH="/usr/local/bin/kodexdev"
-SCRIPT_URL="https://raw.githubusercontent.com/K0dexPr0/Kodex-DLC-ADM/main/KodexDev_DLC_VPS_Management_Script.sh"
+REPO_RAW="https://raw.githubusercontent.com/K0dexPr0/Kodex-DLC-ADM/main/KodexDev_DLC_VPS_Management_Script.sh"
 
-mkdir -p $BACKUP_DIR
+mkdir -p "$BACKUP_DIR"
 
-log(){ echo "[$(date '+%F %T')] $1" >> $LOG_FILE; }
+### PAUSA
 pause(){ read -p "Presiona ENTER para continuar..."; }
-
-### VALIDACIONES
-require_root(){
-  [[ $EUID -ne 0 ]] && echo "Ejecuta como root." && exit 1
-}
-
-check_dep(){
-  command -v "$1" >/dev/null || apt install -y "$1"
-}
 
 ### DEPENDENCIAS
 install_deps(){
   apt update -y
-  for p in curl jq vnstat ufw socat cron lsb-release net-tools whiptail uuid-runtime; do
-    check_dep $p
-  done
+  apt install -y curl jq unzip socat cron lsb-release \
+                 vnstat net-tools ufw fail2ban \
+                 nano vim whiptail speedtest-cli
 }
 
-### INFO SISTEMA
+### INFO DEL SISTEMA
 system_info(){
-  OS=$(lsb_release -ds | tr -d '"')
+  OS=$(lsb_release -ds 2>/dev/null | tr -d '"')
   KERNEL=$(uname -r)
   RAM=$(free -m | awk '/Mem:/ {print $2}')
+  CPU=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2)
   IP=$(curl -s ifconfig.me)
+  UPTIME=$(uptime -p)
 }
 
 ### BANNER
 banner(){
   system_info
   clear
-  echo -e "${RED}╔════════════════════════════════════════════╗"
-  echo "║        KodexDev VPS Management System      ║"
-  echo "║              Author: Joel_DLC              ║"
+  echo -e "${RED}${BOLD}"
+  echo "╔════════════════════════════════════════════╗"
+  echo "║        KODEXDEV VPS MANAGER                ║"
+  echo "║        Author: Joel_DLC                    ║"
   echo "╠════════════════════════════════════════════╣"
-  echo -e "║ OS     : ${WHITE}$OS"
-  echo -e "║ Kernel : ${WHITE}$KERNEL"
-  echo -e "║ RAM    : ${WHITE}${RAM}MB"
-  echo -e "║ IP     : ${WHITE}$IP"
-  echo -e "${RED}╚════════════════════════════════════════════╝${RESET}"
+  echo -e "║ OS      : ${NC}$OS"
+  echo -e "║ Kernel  : $KERNEL"
+  echo -e "║ RAM     : ${RAM} MB"
+  echo -e "║ CPU     : $CPU"
+  echo -e "║ IP      : $IP"
+  echo -e "║ Uptime  : $UPTIME"
+  echo -e "${RED}╚════════════════════════════════════════════╝${NC}"
 }
 
-### PANEL ESTADO
-status_panel(){
-  XRAY=$(systemctl is-active xray 2>/dev/null || echo "NO")
-  FW=$(ufw status | grep -q active && echo "ACTIVO" || echo "INACTIVO")
-  BBR=$(sysctl net.ipv4.tcp_congestion_control | grep -q bbr && echo "ACTIVO" || echo "NO")
-  echo -e "${GREEN}Xray       : $XRAY"
-  echo "Firewall   : $FW"
-  echo "BBR        : $BBR${RESET}"
+# ==========================================================
+# OPTIMIZACIÓN VPS
+# ==========================================================
+optimize_vps(){
+  while true; do
+    clear
+    echo -e "${GREEN}[ Optimización VPS ]${NC}"
+    echo "1) Perfil seguro"
+    echo "2) Alto rendimiento (BBR)"
+    echo "3) Ver parámetros activos"
+    echo "4) Restaurar respaldo"
+    echo "0) Volver"
+    read -p "Opción: " o
+    case $o in
+      1)
+        cp /etc/sysctl.conf "$BACKUP_DIR/sysctl.bak" 2>/dev/null
+        cat >> /etc/sysctl.conf <<EOF
+net.ipv4.tcp_fastopen=3
+net.ipv4.ip_forward=1
+EOF
+        sysctl -p
+        pause;;
+      2)
+        cp /etc/sysctl.conf "$BACKUP_DIR/sysctl.bak" 2>/dev/null
+        cat >> /etc/sysctl.conf <<EOF
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.tcp_fastopen=3
+fs.file-max=1000000
+net.ipv4.ip_forward=1
+EOF
+        sysctl -p
+        pause;;
+      3)
+        sysctl -a | grep tcp_
+        pause;;
+      4)
+        [ -f "$BACKUP_DIR/sysctl.bak" ] && cp "$BACKUP_DIR/sysctl.bak" /etc/sysctl.conf
+        sysctl -p
+        pause;;
+      0) break;;
+    esac
+  done
+}
+
+# ==========================================================
+# XRAY
+# ==========================================================
+xray_menu(){
+  while true; do
+    clear
+    echo -e "${GREEN}[ Gestión Xray ]${NC}"
+    echo "1) Instalar Xray"
+    echo "2) Estado de Xray"
+    echo "3) Reiniciar Xray"
+    echo "4) Ruta config.json"
+    echo "5) Ver / Editar config.json"
+    echo "6) Exportar links VLESS / VMESS"
+    echo "0) Volver"
+    read -p "Opción: " x
+    case $x in
+      1)
+        bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
+        mkdir -p "$XRAY_DIR"
+        pause;;
+      2)
+        systemctl status xray
+        pause;;
+      3)
+        systemctl restart xray
+        pause;;
+      4)
+        echo -e "${YELLOW}Ruta:${NC} $XRAY_CONFIG"
+        pause;;
+      5)
+        echo "1) Ver (less)"
+        echo "2) Editar con nano"
+        echo "3) Editar con vim"
+        read -p "Opción: " e
+        case $e in
+          1) less "$XRAY_CONFIG";;
+          2) nano "$XRAY_CONFIG";;
+          3) vim "$XRAY_CONFIG";;
+        esac;;
+      6)
+        if [ ! -f "$XRAY_CONFIG" ]; then
+          echo "config.json no encontrado"
+          pause; continue
+        fi
+        jq -r '
+        .inbounds[]
+        | select(.protocol=="vless" or .protocol=="vmess")
+        | .settings.clients[]
+        | "PROTOCOLO: \(.email)\nUUID: \(.id)\n"
+        ' "$XRAY_CONFIG"
+        pause;;
+      0) break;;
+    esac
+  done
+}
+
+# ==========================================================
+# CERTIFICADOS & DOMINIOS
+# ==========================================================
+cert_menu(){
+  while true; do
+    clear
+    echo -e "${GREEN}[ Certificados & Dominios ]${NC}"
+    echo "1) DuckDNS + acme.sh"
+    echo "2) Let's Encrypt manual"
+    echo "0) Volver"
+    read -p "Opción: " c
+    case $c in
+      1)
+        read -p "¿Tienes dominio DuckDNS? (s/n): " r
+        [ "$r" != "s" ] && break
+        read -p "Subdominio: " d
+        read -p "Token DuckDNS: " t
+        curl "https://www.duckdns.org/update?domains=$d&token=$t&ip="
+        curl https://get.acme.sh | sh
+        ~/.acme.sh/acme.sh --issue --dns dns_duckdns -d "$d.duckdns.org"
+        pause;;
+      2)
+        echo "Implementación manual pendiente"
+        pause;;
+      0) break;;
+    esac
+  done
+}
+
+# ==========================================================
+# HERRAMIENTAS VPS
+# ==========================================================
+tools_menu(){
+  while true; do
+    clear
+    echo -e "${GREEN}[ Herramientas VPS ]${NC}"
+    echo "1) Test de velocidad"
+    echo "2) Reiniciar VPS"
+    echo "3) Cambiar contraseña root"
+    echo "0) Volver"
+    read -p "Opción: " t
+    case $t in
+      1) speedtest-cli; pause;;
+      2)
+        read -p "¿Seguro? (s): " r
+        [ "$r" = "s" ] && reboot;;
+      3) passwd root;;
+      0) break;;
+    esac
+  done
+}
+
+# ==========================================================
+# AUTO-UPDATE
+# ==========================================================
+update_script(){
+  curl -fsSL "$REPO_RAW" -o "$SCRIPT_PATH"
+  chmod +x "$SCRIPT_PATH"
+  echo "Script actualizado"
   pause
 }
 
-### BACKUPS
-backup_file(){
-  [[ -f $1 ]] && cp "$1" "$BACKUP_DIR/$(basename $1)_$(date +%F_%T)"
-}
-
-### OPTIMIZACIÓN VPS
-optimize_menu(){
-while true; do
-o=$(whiptail --title "Optimización VPS" --menu "" 18 60 5 \
-"1" "Perfil Básico" \
-"2" "Perfil Baja Latencia" \
-"3" "Perfil VPN/Streaming" \
-"4" "Restaurar Defaults" \
-"0" "Volver" 3>&1 1>&2 2>&3)
-case $o in
-1|2|3)
-backup_file $SYSCTL_FILE
-cat <<EOF > $SYSCTL_FILE
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.ipv4.ip_forward=1
-EOF
-sysctl --system
-log "Optimización aplicada"
-pause;;
-4)
-rm -f $SYSCTL_FILE
-sysctl --system
-log "Optimización restaurada"
-pause;;
-0) break;;
-esac
-done
-}
-
-### XRAY USUARIOS
-add_user(){
-UUID=$(uuidgen)
-jq ".inbounds[0].settings.clients += [{\"id\":\"$UUID\"}]" $XRAY_CONFIG > /tmp/x && mv /tmp/x $XRAY_CONFIG
-systemctl restart xray
-echo "UUID creado: $UUID"
-log "Usuario Xray creado $UUID"
-pause
-}
-
-list_users(){
-jq -r '.inbounds[0].settings.clients[].id' $XRAY_CONFIG
-pause
-}
-
-del_user(){
-read -p "UUID a eliminar: " U
-jq "del(.inbounds[0].settings.clients[] | select(.id==\"$U\"))" $XRAY_CONFIG > /tmp/x && mv /tmp/x $XRAY_CONFIG
-systemctl restart xray
-log "Usuario Xray eliminado $U"
-pause
-}
-
-### XRAY MENU
-xray_menu(){
-while true; do
-x=$(whiptail --title "Gestión Xray" --menu "" 20 70 9 \
-"1" "Instalar / Verificar Xray" \
-"2" "Estado / Reinicio" \
-"3" "Ruta config.json" \
-"4" "Backup config" \
-"5" "Agregar usuario" \
-"6" "Listar usuarios" \
-"7" "Eliminar usuario" \
-"8" "Exportar links" \
-"0" "Volver" 3>&1 1>&2 2>&3)
-case $x in
-1) command -v xray >/dev/null || bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh); pause;;
-2) systemctl restart xray; pause;;
-3) echo "$XRAY_CONFIG"; pause;;
-4) backup_file $XRAY_CONFIG; pause;;
-5) add_user;;
-6) list_users;;
-7) del_user;;
-8)
-jq -r '.inbounds[]|select(.protocol=="vless")|"vless://\(.settings.clients[0].id)@DOMAIN:\(.port)#KodexDev"' $XRAY_CONFIG
-pause;;
-0) break;;
-esac
-done
-}
-
-### PUERTOS
-ports_menu(){
-while true; do
-p=$(whiptail --title "Puertos & Firewall" --menu "" 18 60 5 \
-"1" "Ver puertos activos" \
-"2" "Abrir puerto" \
-"3" "Cerrar puerto" \
-"0" "Volver" 3>&1 1>&2 2>&3)
-case $p in
-1) ss -tulnp; pause;;
-2) read -p "Puerto: " pt; ufw allow $pt; log "Puerto abierto $pt"; pause;;
-3) read -p "Puerto: " pt; ufw delete allow $pt; log "Puerto cerrado $pt"; pause;;
-0) break;;
-esac
-done
-}
-
-### CERTIFICADOS
-cert_menu(){
-c=$(whiptail --title "Certificados" --menu "" 15 60 3 \
-"1" "Tengo dominio (Let's Encrypt)" \
-"2" "No tengo dominio (DuckDNS)" \
-"0" "Volver" 3>&1 1>&2 2>&3)
-case $c in
-1) read -p "Dominio: " D; certbot certonly --standalone -d $D; pause;;
-2) read -p "Subdominio DuckDNS: " S; read -p "Token: " T; curl https://get.acme.sh | sh; export DuckDNS_Token=$T; ~/.acme.sh/acme.sh --issue --dns dns_duckdns -d $S.duckdns.org; pause;;
-esac
-}
-
-### UPDATE
-update_script(){
-curl -fsSL $SCRIPT_URL -o $SCRIPT_PATH
-chmod +x $SCRIPT_PATH
-log "Script actualizado"
-exit
-}
-
-### MAIN
-require_root
+# ==========================================================
+# MENU PRINCIPAL
+# ==========================================================
 install_deps
+
 while true; do
-banner
-m=$(whiptail --title "KodexDev VPS ADM" --menu "" 20 70 9 \
-"1" "Panel de Estado" \
-"2" "Optimización VPS" \
-"3" "Gestión Xray" \
-"4" "Puertos & Firewall" \
-"5" "Certificados & Dominio" \
-"6" "Actualizar Script" \
-"0" "Salir" 3>&1 1>&2 2>&3)
-case $m in
-1) status_panel;;
-2) optimize_menu;;
-3) xray_menu;;
-4) ports_menu;;
-5) cert_menu;;
-6) update_script;;
-0) exit;;
-esac
+  banner
+  echo "01) Optimización VPS"
+  echo "02) Gestión Xray"
+  echo "03) Certificados & Dominios"
+  echo "04) Herramientas VPS"
+  echo "05) Actualizar script"
+  echo "00) Salir"
+  read -p "Selecciona: " m
+  case $m in
+    1) optimize_vps;;
+    2) xray_menu;;
+    3) cert_menu;;
+    4) tools_menu;;
+    5) update_script;;
+    0) exit;;
+  esac
 done
