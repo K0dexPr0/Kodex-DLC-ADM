@@ -39,7 +39,7 @@ system_info() {
 banner() {
   system_info
   clear
-  echo -e "${RED}"
+  echo -e "${BLUE}"
   echo "╔════════════════════════════════════════════╗"
   echo "║         KodexDev - VPS Manager Ver 1       ║"
   echo "║            Developed by Joel DLC           ║"
