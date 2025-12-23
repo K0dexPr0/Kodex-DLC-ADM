@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==================================================
 # KodexDev VPS Management System
-# Monolithic ADM - KODEXPRO
-# Author: Joel_DLC
+# Style: Whiptail UI
+# Author: Joel DLC
 # ==================================================
 
 ### COLORES
@@ -14,15 +14,17 @@ RESET="\e[0m"
 
 ### VARIABLES
 XRAY_CONFIG="/etc/xray/config.json"
+SYSCTL_FILE="/etc/sysctl.d/99-kodexdev.conf"
+BACKUP_DIR="/root/kodexdev_backup"
 SCRIPT_PATH="/usr/local/bin/kodexdev"
 SCRIPT_URL="https://raw.githubusercontent.com/K0dexPr0/Kodex-DLC-ADM/main/KodexDev_DLC_VPS_Management_Script.sh"
-DUCKDNS_DIR="/root/.duckdns"
-ACME="$HOME/.acme.sh/acme.sh"
+
+mkdir -p $BACKUP_DIR
 
 ### DEPENDENCIAS
 install_deps() {
   apt update -y
-  apt install -y curl jq socat cron vnstat lsb-release net-tools whiptail
+  apt install -y curl jq socat vnstat net-tools lsb-release ufw cron whiptail
 }
 
 ### INFO SISTEMA
@@ -30,7 +32,7 @@ system_info() {
   OS=$(lsb_release -ds | tr -d '"')
   KERNEL=$(uname -r)
   RAM=$(free -m | awk '/Mem:/ {print $2}')
-  CPU=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')
+  CPU=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2)
   IP=$(curl -s ifconfig.me)
   UPTIME=$(uptime -p)
 }
@@ -57,11 +59,67 @@ banner() {
 pause(){ read -p "Presiona ENTER para continuar..."; }
 
 # ==================================================
+# OPTIMIZACIÓN VPS
+# ==================================================
+optimize_menu() {
+while true; do
+opt=$(whiptail --title "Optimización VPS" --menu "" 18 70 6 \
+"1" "Perfil Básico (Seguro)" \
+"2" "Perfil Baja Latencia / Gaming" \
+"3" "Perfil VPN / Streaming" \
+"4" "Ver configuración actual" \
+"5" "Restaurar valores por defecto" \
+"0" "Volver" 3>&1 1>&2 2>&3)
+
+case $opt in
+1)
+cat <<EOF > $SYSCTL_FILE
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.ip_forward=1
+EOF
+sysctl --system
+pause
+;;
+2)
+cat <<EOF > $SYSCTL_FILE
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_mtu_probing=1
+EOF
+sysctl --system
+pause
+;;
+3)
+cat <<EOF > $SYSCTL_FILE
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+fs.file-max=1000000
+EOF
+sysctl --system
+pause
+;;
+4)
+sysctl -a | grep tcp_
+pause
+;;
+5)
+rm -f $SYSCTL_FILE
+sysctl --system
+pause
+;;
+0) break ;;
+esac
+done
+}
+
+# ==================================================
 # XRAY
 # ==================================================
 xray_menu() {
 while true; do
-opt=$(whiptail --title "KodexDev | Xray Manager" --menu "" 20 70 10 \
+opt=$(whiptail --title "Gestión Xray" --menu "" 18 70 7 \
 "1" "Instalar / Verificar Xray" \
 "2" "Estado del servicio" \
 "3" "Reiniciar Xray" \
@@ -71,62 +129,28 @@ opt=$(whiptail --title "KodexDev | Xray Manager" --menu "" 20 70 10 \
 
 case $opt in
 1)
-  if command -v xray >/dev/null; then
-    echo -e "${GREEN}Xray ya está instalado.${RESET}"
-  else
-    bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
-    systemctl enable xray && systemctl start xray
-  fi
-  pause
+command -v xray >/dev/null || bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
+systemctl enable xray && systemctl start xray
+pause
 ;;
 2)
-  systemctl status xray --no-pager
-  pause
+systemctl status xray --no-pager
+pause
 ;;
 3)
-  systemctl restart xray && echo -e "${GREEN}Xray reiniciado.${RESET}"
-  pause
+systemctl restart xray
+pause
 ;;
 4)
-  if [[ -f $XRAY_CONFIG ]]; then
-    echo -e "${YELLOW}Ruta del config.json:${RESET}"
-    echo -e "${GREEN}$XRAY_CONFIG${RESET}"
-  else
-    echo -e "${RED}config.json no encontrado.${RESET}"
-  fi
-  pause
+echo -e "${GREEN}$XRAY_CONFIG${RESET}"
+pause
 ;;
 5)
-  if [[ ! -f $XRAY_CONFIG ]]; then
-    echo -e "${RED}config.json no existe.${RESET}"
-    pause; return
-  fi
-
-  echo -e "${GREEN}Links VLESS:${RESET}"
-  jq -r '
-  .inbounds[] | select(.protocol=="vless") |
-  "vless://\(.settings.clients[0].id)@\(.streamSettings.wsSettings.headers.Host // "DOMAIN"):\(.port)?encryption=none&type=ws#VLESS-KodexDev"
-  ' $XRAY_CONFIG
-
-  echo
-  echo -e "${GREEN}Links VMESS:${RESET}"
-  jq -r '
-  .inbounds[] | select(.protocol=="vmess") |
-  {
-    v: "2",
-    ps: "VMESS-KodexDev",
-    add: "DOMAIN",
-    port: (.port|tostring),
-    id: .settings.clients[0].id,
-    aid: "0",
-    net: "ws",
-    type: "none",
-    host: "",
-    path: "/",
-    tls: "tls"
-  } | @base64 | "vmess://"+.
-  ' $XRAY_CONFIG
-  pause
+jq -r '.inbounds[] | select(.protocol=="vless") |
+"vless://\(.settings.clients[0].id)@DOMAIN:\(.port)?type=ws#VLESS-KodexDev"' $XRAY_CONFIG 2>/dev/null
+jq -r '.inbounds[] | select(.protocol=="vmess") |
+{v:"2",ps:"VMESS-KodexDev",add:"DOMAIN",port:(.port|tostring),id:.settings.clients[0].id,aid:"0",net:"ws",type:"none",host:"",path:"/",tls:"tls"} | @base64 | "vmess://"+.' $XRAY_CONFIG 2>/dev/null
+pause
 ;;
 0) break ;;
 esac
@@ -134,38 +158,95 @@ done
 }
 
 # ==================================================
-# DUCKDNS + ACME.SH
+# PROTOCOLOS & PUERTOS
 # ==================================================
-duckdns_menu() {
-read -p "DuckDNS subdominio (ej: midominio): " SUB
-read -p "DuckDNS token: " TOKEN
+protocol_menu() {
+while true; do
+opt=$(whiptail --title "Protocolos & Puertos" --menu "" 18 70 8 \
+"1" "Ver protocolos activos" \
+"2" "Ver puertos activos" \
+"3" "Abrir puerto" \
+"4" "Cerrar puerto" \
+"5" "Instalar Dropbear" \
+"6" "Instalar BadVPN" \
+"0" "Volver" 3>&1 1>&2 2>&3)
 
-mkdir -p $DUCKDNS_DIR
-cat <<EOF > $DUCKDNS_DIR/duck.sh
-#!/bin/bash
-echo url="https://www.duckdns.org/update?domains=$SUB&token=$TOKEN&ip=" | curl -k -o /root/.duckdns/duck.log -K -
-EOF
-chmod +x $DUCKDNS_DIR/duck.sh
-(crontab -l 2>/dev/null; echo "*/5 * * * * $DUCKDNS_DIR/duck.sh >/dev/null 2>&1") | crontab -
+case $opt in
+1)
+jq '.inbounds[].protocol' $XRAY_CONFIG 2>/dev/null
+pause
+;;
+2)
+ss -tulnp
+pause
+;;
+3)
+read -p "Puerto a abrir: " p
+ufw allow $p
+pause
+;;
+4)
+read -p "Puerto a cerrar: " p
+ufw delete allow $p
+pause
+;;
+5)
+apt install -y dropbear
+sed -i 's/NO_START=1/NO_START=0/' /etc/default/dropbear
+systemctl restart dropbear
+pause
+;;
+6)
+echo "Instala BadVPN manualmente según tu uso."
+pause
+;;
+0) break ;;
+esac
+done
+}
 
+# ==================================================
+# CERTIFICADOS & DOMINIO
+# ==================================================
+cert_menu() {
+opt=$(whiptail --title "Certificados & Dominio" --menu "" 15 70 4 \
+"1" "Tengo dominio (Let's Encrypt)" \
+"2" "No tengo dominio (DuckDNS)" \
+"0" "Volver" 3>&1 1>&2 2>&3)
+
+case $opt in
+1)
+read -p "Dominio: " DOM
+apt install -y certbot
+certbot certonly --standalone -d $DOM
+pause
+;;
+2)
+read -p "Subdominio DuckDNS: " SUB
+read -p "Token DuckDNS: " TOKEN
 curl https://get.acme.sh | sh
-$ACME --issue --dns dns_duckdns -d $SUB.duckdns.org --keylength ec-256
-$ACME --install-cert -d $SUB.duckdns.org \
---key-file /etc/xray/private.key \
---fullchain-file /etc/xray/cert.crt
+export DuckDNS_Token="$TOKEN"
+~/.acme.sh/acme.sh --issue --dns dns_duckdns -d $SUB.duckdns.org
+pause
+;;
+esac
+}
 
-echo -e "${GREEN}DuckDNS + TLS configurado.${RESET}"
+# ==================================================
+# ESTADÍSTICAS
+# ==================================================
+traffic_menu() {
+vnstat
 pause
 }
 
 # ==================================================
-# AUTO UPDATE
+# UPDATE
 # ==================================================
 update_script() {
-echo -e "${YELLOW}Actualizando KodexDev ADM...${RESET}"
 curl -fsSL $SCRIPT_URL -o $SCRIPT_PATH
 chmod +x $SCRIPT_PATH
-echo -e "${GREEN}Actualización completa. Reinicia el script.${RESET}"
+echo "Actualizado. Reinicia."
 exit
 }
 
@@ -175,16 +256,22 @@ exit
 install_deps
 while true; do
 banner
-opt=$(whiptail --title "KodexDev – Joel_DLC | VPS ADM" --menu "" 20 70 10 \
-"1" "Gestión Xray" \
-"2" "DuckDNS + TLS (acme.sh)" \
-"3" "Actualizar Script" \
+opt=$(whiptail --title "KodexDev – Joel_DLC | VPS ADM" --menu "" 20 70 8 \
+"1" "Optimización VPS" \
+"2" "Gestión Xray" \
+"3" "Protocolos & Puertos" \
+"4" "Certificados & Dominio" \
+"5" "Estadísticas de tráfico" \
+"6" "Actualizar Script" \
 "0" "Salir" 3>&1 1>&2 2>&3)
 
 case $opt in
-1) xray_menu ;;
-2) duckdns_menu ;;
-3) update_script ;;
+1) optimize_menu ;;
+2) xray_menu ;;
+3) protocol_menu ;;
+4) cert_menu ;;
+5) traffic_menu ;;
+6) update_script ;;
 0) clear; exit ;;
 esac
 done
